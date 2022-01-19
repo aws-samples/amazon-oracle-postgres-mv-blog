@@ -1,11 +1,8 @@
-## My Project
+## How AEVI used Oracle materialized views fast refresh when migrating from Oracle to PostgreSQL with AWS DMS
 
-TODO: Fill this README out!
+This repository contains sample scripts for using Amazon RDS for Oracle and Postgres together with AWS Database Migration Service. You can use these scripts to walk you through the process of replicating Oracle materialized views to RDS for PostgreSQL tables using AWS DMS and review potential specific configurations to make sure there is no data loss or corruption.
 
-Be sure to:
-
-* Change the title in this README
-* Edit your repository description on GitHub
+ These scripts were written to accompany the AWS Database Blog post: 
 
 ## Security
 
