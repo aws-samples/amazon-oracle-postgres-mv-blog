@@ -1,0 +1,626 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+
+  "Description" : "PG-Oracle-MVBlog-V1.0: Bastian Host, Oracle RDS, PostgreSQL RDS to test MV",
+
+  "Metadata"  : {
+    "Author"      : "Nataliya Birch - Database Migration Specialist",
+    "Department"  : "Database Migration Acceleration (DMA)",
+    "Company"     : "Amazon WEB Services",
+    "Version"     : "1.0",
+    "ModifiedOn"  : "24-Dec-2021",
+    "Copyright"   : "Copyright 2021 Amazon.com, Inc. or its affiliates. All Rights Reserved. SPDX-License-Identifier: MIT-0"
+  },
+
+  "Parameters": {
+    "EC2KeyName": {
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access to the instance",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "Default": "",
+      "ConstraintDescription": "must be the name of an existing EC2 KeyPair."
+    },
+    "EC2Password": {
+      "Description": "The Linux Host account password",
+      "Type": "String",
+      "Default": "ChangeMe!",
+      "MinLength": "8"
+    },
+    "DbIdentifierPostgres": {
+      "Description": "The RDS database identifier, this forms the DNS name and must be unique across the account",
+      "Type": "String",
+      "Default": "postgres-mv",
+      "AllowedPattern": "[a-zA-Z][a-zA-Z_\\-0-9]*",
+      "ConstraintDescription": "must begin with a letter and contain only alphanumeric characters and a hyphen."
+    },
+    "DbIdentifierOracle": {
+      "Description": "The RDS database identifier, this forms the DNS name and must be unique across the account",
+      "Type": "String",
+      "Default": "oracle-mv",
+      "AllowedPattern": "[a-zA-Z][a-zA-Z_\\-0-9]*",
+      "ConstraintDescription": "must begin with a letter and contain only alphanumeric characters and a hyphen."
+    },
+    "DBPassword": {
+      "Description": "The database admin password for the database we are creating",
+      "Type": "String",
+      "Default": "ChangeMe!",
+      "NoEcho": "true",
+      "MinLength": "4"
+    },
+    "PublicSecurityGroupId": {
+      "Description": "The ID of an existing security group allowing for SSH and RDP access to the bastian host from your LAN or VPN.",
+      "Type": "AWS::EC2::SecurityGroup::Id",
+      "ConstraintDescription": "must be the ID of an existing Security Group that allows port 22 and 3389 access."
+    },
+    "SshSecurityGroupId": {
+      "Description": "The ID of an existing security group allowing for SSH access to the Oracle Database host from the PublicSecurityGroup.",
+      "Type": "AWS::EC2::SecurityGroup::Id",
+      "ConstraintDescription": "must be the ID of an existing Security Group that allows port 22 access."
+    },
+    "DataBaseSecurityGroupId": {
+      "Description": "The ID of an existing Security Group that allows database access, ports 1521 and 5432, from the SshSecurityGroup.",
+      "Type": "AWS::EC2::SecurityGroup::Id",
+      "ConstraintDescription": "must be the ID of an existing Security Group that allows port 5432 and 1521 access."
+    },
+    "PublicSubnetId": {
+      "Description": "The ID of the SubNet where the Bastian Host will reside and to which the PublicSecurityGroup will be attached",
+      "Type": "AWS::EC2::Subnet::Id",
+      "ConstraintDescription": "must be the ID of an existing Subnet, to which the PublicSecurityGroup provides access"
+    },
+    "DatabaseSubnetId": {
+      "Description": "The ID of a SubNet where the Oracle Database Host will reside and to which the SshSecurityGroupId and DataBaseSecurityGroupId will be attached.",
+      "Type": "AWS::EC2::Subnet::Id",
+      "ConstraintDescription": "must be the ID of an existing Subnet, to which the DataBaseSecurityGroup and SshSecurityGroup provides access"
+    },
+    "RdsSubnetGroupName": {
+      "Description": "The name of the database subnet group where the RDS PostgreSQL Database will reside and to which the SshSecurityGroupId and DataBaseSecurityGroupId will be attached.",
+      "Type": "String"
+    },
+    "DmsSubnetGroupName": {
+      "Description": "The name of the DMS subnet group where the DMS replication instance will reside and to which the SshSecurityGroupId and DataBaseSecurityGroupId will be attached.",
+      "Type": "String"
+    },
+    "DbfSchedule": {
+      "Description": "Optional schedule to use for auto shutdown of the instances, creates a tag entry for the Job scheduler",
+      "Type": "String",
+      "Default": "uk-office-hours"
+    },
+    "BastianInstanceType": {
+      "Description": "AMZN Bastian Host Type, Note that the default is the free tier instance size",
+      "Type": "String",
+      "Default": "t3.micro",
+      "AllowedValues": [
+        "t3.micro",
+        "t3.small",
+        "t3.medium",
+        "t3.large",
+        "t3.xlarge",
+        "t3.2xlarge",
+        "m5.large",
+        "m5.xlarge",
+        "m5.2xlarge",
+        "m5.4xlarge",
+        "m5.8xlarge",
+        "m5.12xlarge",
+        "m5.16xlarge",
+        "m5.24xlarge",
+        "r5.large",
+        "r5.xlarge",
+        "r5.2xlarge",
+        "r5.4xlarge",
+        "r5.8xlarge",
+        "r5.12xlarge",
+        "r5.16xlarge",
+        "r5.24xlarge",
+        "c5.large",
+        "c5.xlarge",
+        "c5.2xlarge",
+        "c5.4xlarge",
+        "c5.9xlarge",
+        "c5.12xlarge",
+        "c5.18xlarge",
+        "c5.24xlarge"
+      ],
+      "ConstraintDescription": "must be a valid Intel EC2 instance type."
+    },
+    "RdsInstanceClassOracle": {
+      "Description": "RDS Database Instance Class, Note that the default is the free tier instance size",
+      "Type": "String",
+      "Default": "db.t3.small",
+      "AllowedValues": [
+        "db.t3.small",
+        "db.t3.medium",
+        "db.t3.large"
+      ],
+      "ConstraintDescription": "must be a valid RDS instance Class."
+    },
+    "RdsInstanceClassPostgres": {
+      "Description": "RDS Database Instance Class",
+      "Type": "String",
+      "Default": "db.t3.small",
+      "AllowedValues": [
+        "db.t3.small",
+        "db.t3.medium",
+        "db.t3.large"
+      ],
+      "ConstraintDescription": "must be a valid RDS instance Class."
+    },
+    "DmsEngineVersion": {
+      "Description": "DMS Replication Instance version",
+      "Type": "String",
+      "Default": "3.4.5",
+      "AllowedValues": [
+        "3.4.3",
+        "3.4.5",
+        "3.4.6"
+      ],
+      "ConstraintDescription": "must be a valid RDS instance Class."
+    },
+    "DmsInstanceClass": {
+      "Description": "DMS Replication Instance class",
+      "Type": "String",
+      "Default": "dms.t3.large",
+      "AllowedValues": [
+        "dms.t3.small",
+        "dms.t3.medium",
+        "dms.t3.large",
+        "dms.c5.large",
+        "dms.r5.large"
+      ],
+      "ConstraintDescription": "must be a valid DMS instance Class."
+    },
+    "DmsReplicationInstanceIdentifier": {
+      "Description": "The identifier for the replication instance. Given a unique ID if none is provided.",
+      "Type": "String",
+      "Default": "mv-test-replication-instance",
+      "AllowedPattern": "[a-zA-Z][a-zA-Z_\\-0-9]*"
+    },
+    "DmsAllocatedStorage": {
+      "Description": "The amount of storage, in gigabytes, to be initially allocated for the replication instance.",
+      "Type": "Number",
+      "Default": "20",
+      "MinValue": "5",
+      "MaxValue": "50"
+    }
+  },
+  "Mappings": {
+    "LinuxAMIMapName": {
+      "us-east-1"    : {"amzn2" : "ami-0c94855ba95c71c99", "rhel7" : "ami-005b7876121b7244d"},
+      "us-east-2"    : {"amzn2" : "ami-0603cbe34fd08cb81", "rhel7" : "ami-0d2bf41df19c4aac7"},
+      "us-west-1"    : {"amzn2" : "ami-0e65ed16c9bf1abc7", "rhel7" : "ami-015474e24281c803d"},
+      "us-west-2"    : {"amzn2" : "ami-01ce4793a2f45922e", "rhel7" : "ami-02d40d11bb3aaf3e5"},
+      "eu-central-1" : {"amzn2" : "ami-08c148bb835696b45", "rhel7" : "ami-0f58468b80db2db66"},
+      "eu-west-1"    : {"amzn2" : "ami-0bb3fad3c0286ebd5", "rhel7" : "ami-020e14de09d1866b4"},
+      "eu-west-2"    : {"amzn2" : "ami-09b89ad3c5769cca2", "rhel7" : "ami-0e6c172f77df9f9c3"},
+      "eu-west-3"    : {"amzn2" : "ami-0697b068b80d79421", "rhel7" : "ami-0f4643887b8afe9e2"}
+    }
+  },
+
+  "Resources": {
+    "RdsPostgreSQL": {
+      "Type"            :  "AWS::RDS::DBInstance",
+      "DeletionPolicy"  :  "Delete",
+      "Properties"      : {
+        "AllocatedStorage"                      :    "20",
+        "AllowMajorVersionUpgrade"              :    "true",
+        "AutoMinorVersionUpgrade"               :    "true",
+        "BackupRetentionPeriod"                 :    "0",
+        "DeletionProtection"                    :    "false",
+        "DBInstanceClass"                       :   {"Ref" : "RdsInstanceClassPostgres"},
+        "DBInstanceIdentifier"                  :   {"Ref" : "DbIdentifierPostgres"},
+        "DBName"                                :    "postgres",
+        "DBSubnetGroupName"                     :   {"Ref" : "RdsSubnetGroupName"},
+        "EnablePerformanceInsights"             :    "true",
+        "Engine"                                :    "postgres",
+        "EngineVersion"                         :    "12.7",
+        "LicenseModel"                          :    "postgresql-license",
+        "MasterUsername"                        :    "mike",
+        "MasterUserPassword"                    :   {"Ref" : "DBPassword"},
+        "PerformanceInsightsRetentionPeriod"    :    "7",
+        "PreferredMaintenanceWindow"            :    "sun:03:05-sun:04:05",
+        "StorageType"                           :    "gp2",
+        "Tags"    : [
+          {"Key"  : "Name",             "Value" :   "postgres-12-7"},
+          {"Key"  : "Schedule",         "Value" :  {"Ref" : "DbfSchedule"}},
+          {"Key"  : "ScheduleMessage",  "Value" :   "Initial Build"}
+        ],
+        "VPCSecurityGroups"                     : [{"Ref" : "DataBaseSecurityGroupId"}, {"Ref" : "SshSecurityGroupId"}]
+      }
+    },
+
+    "RdsOracleSQL": {
+      "Type"            :  "AWS::RDS::DBInstance",
+      "DeletionPolicy"  :  "Delete",
+      "Properties"      : {
+        "AllocatedStorage"                      :    "20",
+        "AutoMinorVersionUpgrade"               :    "true",
+        "BackupRetentionPeriod"                 :    "1",
+        "DeletionProtection"                    :    "false",
+        "DBInstanceClass"                       :   {"Ref" : "RdsInstanceClassOracle"},
+        "DBInstanceIdentifier"                  :   {"Ref" : "DbIdentifierOracle"},
+        "DBName"                                :    "XEPDB1",
+        "DBSubnetGroupName"                     :   {"Ref" : "RdsSubnetGroupName"},
+        "EnablePerformanceInsights"             :    "true",
+        "Engine"                                :    "oracle-se2",
+        "EngineVersion"                         :    "19.0.0.0.ru-2021-07.rur-2021-07.r1",
+        "LicenseModel"                          :    "license-included",
+        "MasterUsername"                        :    "mike",
+        "MasterUserPassword"                    :   {"Ref" : "DBPassword"},
+        "PerformanceInsightsRetentionPeriod"    :    "7",
+        "PreferredMaintenanceWindow"            :    "sun:03:05-sun:04:05",
+        "StorageType"                           :    "gp2",
+        "Tags"    : [
+          {"Key"  : "Name",             "Value" :   "oracle rds"},
+          {"Key"  : "Schedule",         "Value" :  {"Ref" : "DbfSchedule"}},
+          {"Key"  : "ScheduleMessage",  "Value" :   "Initial Build"}
+        ],
+        "VPCSecurityGroups"                     : [{"Ref" : "DataBaseSecurityGroupId"}, {"Ref" : "SshSecurityGroupId"}]
+      }
+    },
+
+
+    "DmsReplicationInstance": {
+      "Type"             : "AWS::DMS::ReplicationInstance",
+      "DeletionPolicy"   : "Delete",
+      "Properties"       : {
+        "AllocatedStorage"                      :    {"Ref" : "DmsAllocatedStorage"},
+        "ReplicationInstanceClass"              :    {"Ref" : "DmsInstanceClass"},
+        "EngineVersion"                         :    {"Ref" : "DmsEngineVersion"},
+        "ReplicationSubnetGroupIdentifier"      :   {"Ref" : "DmsSubnetGroupName"},
+        "MultiAZ"                               :    "false",
+        "PubliclyAccessible"                    :    "false",
+        "ReplicationInstanceIdentifier"         :    {"Ref" : "DmsReplicationInstanceIdentifier"},
+        "Tags"    : [
+          {"Key"  : "Name",             "Value" :   "dms"},
+          {"Key"  : "Schedule",         "Value" :  {"Ref" : "DbfSchedule"}},
+          {"Key"  : "ScheduleMessage",  "Value" :   "Initial Build"}
+        ],
+        "VpcSecurityGroupIds"                     : [{"Ref" : "DataBaseSecurityGroupId"}, {"Ref" : "SshSecurityGroupId"}]
+      }
+    },
+   
+    "BastianHost": {
+      "Type"            :  "AWS::EC2::Instance",
+      "DeletionPolicy"  :  "Delete",
+      "Properties"      : {
+        "BlockDeviceMappings" :[{
+          "DeviceName": "/dev/xvda",
+          "Ebs"       : {
+            "DeleteOnTermination" :   "true",
+            "VolumeSize"          :   "40",
+            "VolumeType"          :   "gp3"
+          }
+        }],
+        "ImageId"           :  {"Fn::FindInMap" : ["LinuxAMIMapName", {"Ref" : "AWS::Region"},  "amzn2"]},
+        "InstanceType"      :  {"Ref" : "BastianInstanceType"},
+        "KeyName"           :  {"Ref" : "EC2KeyName" },
+        "NetworkInterfaces" : [{
+          "DeviceIndex"               :   "0",
+          "GroupSet"                  : [{"Ref" : "PublicSecurityGroupId"}],
+          "AssociatePublicIpAddress"  :   "true",
+          "DeleteOnTermination"       :   "true",
+          "SubnetId"                  :  {"Ref" : "PublicSubnetId"}
+        }],
+        "Tags"    : [
+          {"Key"  : "Name",             "Value" :  "Bastian Host"},
+          {"Key"  : "Schedule",         "Value" : {"Ref" : "DbfSchedule"}},
+          {"Key"  : "ScheduleMessage",  "Value" :  "Initial Build"},
+          {"Key"  : "EC2Distro",        "Value" :  "amzn2"}
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": ["", [
+              "#!/bin/bash -xe\n",
+              "# Record Start\n",
+              "ERROR_LOG=/tmp/Install-Err.txt\n",
+              "INSTALL_LOG=/tmp/Install-Log.txt\n",
+
+              "date > /tmp/Finished-Install.txt\n",
+              "date > $INSTALL_LOG\n",
+              "date > $ERROR_LOG\n",
+
+              "setupVariables()\n",
+              "{\n",
+              "  echo starting setupVariables at `date` >> $INSTALL_LOG\n",
+
+              "  KeyName=",     {"Ref"        :  "EC2KeyName"},   "\n",
+              "  EC2Password=", {"Ref"        :  "EC2Password"},  "\n",
+              "  DBPassword=",  {"Ref"        :  "DBPassword"},   "\n",
+              "  ORACLE_BASE=/usr/lib/oracle\n",
+              "  ORACLE_HOME=$ORACLE_BASE/19.10/client64\n",
+              "  TNS_ADMIN=$ORACLE_HOME/lib/network/admin\n",
+              "  TNS_NAMES=$TNS_ADMIN/tnsnames.ora\n",
+
+              "  echo KeyName    : $KeyName     >> /tmp/Parameter-Log.txt\n",
+              "  echo EC2Password: $EC2Password >> /tmp/Parameter-Log.txt\n",
+              "  echo DBPassword : $DBPassword  >> /tmp/Parameter-Log.txt\n",
+              "  echo ORACLE_BASE: $ORACLE_BASE >> /tmp/Parameter-Log.txt\n",
+              "  echo ORACLE_HOME: $ORACLE_HOME >> /tmp/Parameter-Log.txt\n",
+              "  echo TNS_ADMIN  : $TNS_ADMIN   >> /tmp/Parameter-Log.txt\n",
+              "}\n",
+
+              "enableAmznLinuxExtras()\n",
+              "{\n",
+              "  echo Enable Java 11\n",
+              "  amazon-linux-extras enable java-openjdk11\n",
+
+              "  echo Enable Python\n",
+              "  amazon-linux-extras enable python3.8\n",
+
+              "  echo Enable Vim\n",
+              "  amazon-linux-extras enable vim\n",
+
+              "  echo Enable Mate Desktop\n",
+              "  amazon-linux-extras enable mate-desktop1.x\n",
+
+              "  echo Enable Libre Office\n",
+              "  amazon-linux-extras enable libreoffice\n",
+
+              "  echo Enable postgresql13\n",
+              "  amazon-linux-extras enable postgresql13\n",
+              "}\n",
+
+              "configureAmznLibraries()\n",
+              "{\n",
+              "  echo -e 'Run Amzn Specific library commands'\n",
+              "  echo -e '\tAdd RDP 7 Repository'\n",
+              "  rpm -Uvh https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm\n",
+              "  yum makecache\n",
+              "}\n",
+
+              "installAmznLinuxPackages()\n",
+              "{\n",
+              "  echo starting installRhelLinuxPackages at `date` >> $INSTALL_LOG\n",
+
+              "  yum install  -y evince >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y gcc    >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y gvim   >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+
+              "  yum install  -y elfutils-libelf-devel >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+
+              "  yum install  -y gedit    >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y chromium >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y python3  >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+
+              "  yum install  -y java-11-openjdk >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y postgresql      >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y libreoffice     >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y mate-desktop    >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y tigervnc        >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+			  "  yum install -y git >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install  -y xrdp            >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+
+              "  yum groupinstall -y Xfce >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "}\n",
+
+              "updateEtcHosts()\n",
+              "{\n",
+              "  echo starting updateEtcHosts at `date` >> $INSTALL_LOG\n",
+
+              "  HostInstanceIP=`hostname -I`\n",
+
+              "  echo $HostInstanceIP bastian-host  bastian-host.db-freedom.aws.internal  >> /etc/hosts\n",
+              "  echo 127.0.0.1       localhost localhost.localdomain localhost4 localhost4.localdomain4 >> /etc/hosts\n",
+              "}\n",
+
+              "updateSysconfigNetwork()\n",
+              "{\n",
+              "  echo starting updateSysconfigNetwork at `date` >> $INSTALL_LOG\n",
+
+              "  echo NETWORKING=yes                                >  /etc/sysconfig/network\n",
+              "  echo HOSTNAME=bastian-host.db-freedom.aws.internal >> /etc/sysconfig/network\n",
+              "  echo NETWORKING_IPV6=no                            >> /etc/sysconfig/network\n",
+              "  echo NOZEROCONF=yes                                >> /etc/sysconfig/network\n",
+
+              "  hostnamectl set-hostname bastian-host\n",
+              "  hostname >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "}\n",
+
+              "createDatabaseAccounts()\n",
+              "{\n",
+              "  echo starting createDatabaseAccounts at `date` >> $INSTALL_LOG\n",
+
+              "  groupadd -g 501 oinstall 2>> $ERROR_LOG\n",
+              "  groupadd -g 502 dba      2>> $ERROR_LOG\n",
+              "  groupadd -g 503 asmadmin 2>> $ERROR_LOG\n",
+              "  groupadd -g 504 oper     2>> $ERROR_LOG\n",
+              "  groupadd -g 505 asmoper  2>> $ERROR_LOG\n",
+              "  useradd  -c 'Oracle User' -m -u 501 -g oinstall -G dba,asmadmin,oper,asmoper -s /bin/bash -d /home/oracle oracle\n",
+              "}\n",
+
+              "setPasswords()\n",
+              "{\n",
+              "  echo starting setPasswords at `date` >> $INSTALL_LOG\n",
+
+              "  echo $EC2Password  | passwd oracle   --stdin\n",
+              "  echo $EC2Password  | passwd ec2-user --stdin\n",
+              "  echo $EC2Password  | passwd root     --stdin\n",
+              "}\n",
+
+              "setupBashProfiles()\n",
+              "{\n",
+              "  echo starting setupBashProfiles at `date` >> $INSTALL_LOG\n",
+
+              "  echo ''                                      >> /etc/profile\n",
+              "  echo export ORACLE_BASE=$ORACLE_BASE         >> /etc/profile\n",
+              "  echo export ORACLE_HOME=$ORACLE_HOME         >> /etc/profile\n",
+              "  echo export TNS_ADMIN=$TNS_ADMIN             >> /etc/profile\n",
+              "  echo export LD_LIBRARY_PATH=/lib64/:$ORACLE_HOME/lib >> /etc/profile\n",
+              "  echo export PATH=$ORACLE_HOME/bin:$PATH              >> /etc/profile\n",
+
+              "  echo '#!/bin/bash +x'                   >  /home/oracle/.bash_profile\n",
+              "  echo '# Get the aliases and functions'  >> /home/oracle/.bash_profile\n",
+              "  echo 'if [ -f ~/.bashrc ]; then'        >> /home/oracle/.bash_profile\n",
+              "  echo '      . ~/.bashrc'                >> /home/oracle/.bash_profile\n",
+              "  echo 'fi\n'                             >> /home/oracle/.bash_profile\n",
+
+              "  echo '# User specific environment and startup programs\n' >> /home/oracle/.bash_profile\n",
+              "  echo 'export ORAENV_ASK=NO\n'                             >> /home/oracle/.bash_profile\n",
+              "  echo 'export CLASSPATH=/opt/JDBC/*:.\n'                   >> /home/oracle/.bash_profile\n",
+              "  echo 'PATH=$HOME/.local/bin:$PATH:$HOME/bin\n'            >> /home/oracle/.bash_profile\n",
+              "  echo 'export PATH'                                        >> /home/oracle/.bash_profile\n",
+
+              "  echo 'alias java11=/etc/alternatives/jre_11/bin/java'  >> /home/oracle/.bashrc\n",
+
+              "  chown oracle:oinstall /home/oracle/.bash_profile\n",
+              "  chown oracle:oinstall /home/oracle/.bashrc\n",
+              "}\n",
+
+              "setupViProfile()\n",
+              "{\n",
+              "  echo starting setupViProfile at `date` >> $INSTALL_LOG\n",
+
+              "  echo 'setupViProfile'\n",
+
+              "  echo 'syntax on'         >>  /home/oracle/.vimrc\n",
+              "  echo 'colorscheme slate' >>  /home/oracle/.vimrc\n",
+              "  chown oracle:oinstall        /home/oracle/.vimrc\n",
+
+              "  cp /home/oracle/.vimrc   /home/ec2-user/.vimrc\n",
+              "  chown ec2-user:ec2-user  /home/ec2-user/.vimrc\n",
+              "}\n",
+
+              "installOracleClient()\n",
+              "{\n",
+              "  echo starting setupOracleClient at `date` >> $INSTALL_LOG\n",
+
+              "  curl https://download.oracle.com/otn_software/linux/instantclient/191000/oracle-instantclient19.10-basic-19.10.0.0.0-1.x86_64.rpm   -o /tmp/oracle-instantclient-basic.rpm\n",
+              "  curl https://download.oracle.com/otn_software/linux/instantclient/191000/oracle-instantclient19.10-sqlplus-19.10.0.0.0-1.x86_64.rpm -o /tmp/oracle-instantclient-sqlplus.rpm\n",
+              "  curl https://download.oracle.com/otn_software/linux/instantclient/191000/oracle-instantclient19.10-tools-19.10.0.0.0-1.x86_64.rpm   -o /tmp/oracle-instantclient-tools.rpm\n",
+              "  curl https://download.oracle.com/otn_software/linux/instantclient/191000/oracle-instantclient19.10-jdbc-19.10.0.0.0-1.x86_64.rpm    -o /tmp/oracle-instantclient-jdbc.rpm\n",
+              "  curl https://download.oracle.com/otn_software/linux/instantclient/191000/oracle-instantclient19.10-odbc-19.10.0.0.0-1.x86_64.rpm    -o /tmp/oracle-instantclient-odbc.rpm\n",
+              "  curl https://download.oracle.com/otn_software/linux/instantclient/191000/oracle-instantclient19.10-devel-19.10.0.0.0-1.x86_64.rpm   -o /tmp/oracle-instantclient-devel.rpm\n",
+              "  curl https://download.oracle.com/otn_software/linux/instantclient/191000/oracle-instantclient19.10-precomp-19.10.0.0.0-1.x86_64.rpm -o /tmp/oracle-instantclient-precomp.rpm\n",
+
+              "  yum install -y /tmp/oracle-instantclient-basic.rpm   >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install -y /tmp/oracle-instantclient-sqlplus.rpm >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install -y /tmp/oracle-instantclient-tools.rpm   >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install -y /tmp/oracle-instantclient-jdbc.rpm    >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install -y /tmp/oracle-instantclient-odbc.rpm    >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install -y /tmp/oracle-instantclient-devel.rpm   >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "  yum install -y /tmp/oracle-instantclient-precomp.rpm >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+
+              "  echo $ORACLE_HOME/lib > /etc/ld.so.conf.d/oracle.conf\n",
+              "  ldconfig >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "}\n",
+
+              "createTnsNames()\n",
+              "{\n",
+              "  echo starting createTnsNames at `date` >> $INSTALL_LOG\n",
+
+              "  mkdir -p $TNS_ADMIN >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+
+              "  echo 'XEPDB1 ='                      >  $TNS_NAMES\n",
+              "  echo ' ( DESCRIPTION ='              >> $TNS_NAMES\n",
+              "  echo '   ( ADDRESS ='                >> $TNS_NAMES\n",
+              "  echo '     ( PROTOCOL = tcp )'       >> $TNS_NAMES\n",
+              "  echo '     ( HOST     = replace-oracle-rds-endpoint-here )' >> $TNS_NAMES\n",
+              "  echo '     ( PORT     = 1521 )'      >> $TNS_NAMES\n",
+              "  echo '   )'                          >> $TNS_NAMES\n",
+              "  echo '   ( CONNECT_DATA ='           >> $TNS_NAMES\n",
+              "  echo '      (SERVER = DEDICATED)'    >> $TNS_NAMES\n",
+              "  echo '      (SERVICE_NAME = XEPDB1)' >> $TNS_NAMES\n",
+              "  echo '   )'                          >> $TNS_NAMES\n",
+              "  echo ' )'                            >> $TNS_NAMES\n",
+
+              "  chown oracle:oinstall  $TNS_NAMES\n",
+              "}\n",
+
+              "setupRdpAccess()\n",
+              "{\n",
+              " echo starting setupRdpAccess at `date` >> $INSTALL_LOG\n",
+
+              " echo 'xfce4-session' > /home/oracle/.Xclients\n",
+              " chmod 755              /home/oracle/.Xclients\n",
+              " chown oracle:oinstall  /home/oracle/.Xclients\n",
+
+              " systemctl daemon-reload\n",
+              " systemctl enable  xrdp\n",
+              " systemctl start   xrdp\n",
+              "}\n",
+
+              "getZipfiles()\n",
+              "{\n",
+              " echo cloning the git repository `date` >> $INSTALL_LOG\n",
+              " cd /home/oracle\n",
+			  " git clone https://github.com/aws-samples/amazon-oracle-postgres-mv-blog.git\n",
+			  " cd amazon-oracle-postgres-mv-blog\n", 
+              " unzip MaterializedViewTestCase.zip\n",
+			  " chmod +x runOrclTestsLocal.sh\n",
+			  " chmod +x runOrclTestsCleanup.sh\n",			  
+              " chown -R oracle:oinstall /home/oracle/amazon-oracle-postgres-mv-blog\n",
+              "}\n",
+
+              "getSqlScripts()\n",
+              "{\n",
+              " echo starting getSqlScripts at `date` >> $INSTALL_LOG\n",
+
+              " echo export KeyName=$KeyName   >> /home/oracle/.bash_profile\n",
+              
+              "}\n",
+
+              "# Main\n",
+              "setupVariables\n",
+              "enableAmznLinuxExtras\n",
+              "configureAmznLibraries\n",
+              "createDatabaseAccounts\n",
+
+              "yum -y install curl >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+              "yum -y update       >> $INSTALL_LOG 2>> $ERROR_LOG\n",
+
+              "installAmznLinuxPackages\n",
+              "updateEtcHosts\n",
+              "updateSysconfigNetwork\n",
+              "setPasswords\n",
+              "setupBashProfiles\n",
+              "setupViProfile\n",
+              "installOracleClient\n",
+              "createTnsNames\n",
+              "setupRdpAccess\n",
+              "getZipfiles\n",
+              "getSqlScripts\n",
+
+
+              "# Record Successful completion\n",
+              "date >> /tmp/Finished-Install.txt\n",
+              "cp /tmp/Finished-Install.txt /home/oracle/Finished-Install.txt\n",
+              "cp /tmp/Parameter-Log.txt    /home/oracle/Parameter-Log.txt\n",
+              "cp $INSTALL_LOG      /home/oracle/Install-Log.txt\n",
+              "chown oracle /home/oracle/*.txt\n",
+
+              "rm -fr /tmp/*\n",
+              "reboot now\n"
+            ]]
+          }
+        }
+      }
+    }
+  },
+
+  "Outputs": {
+    "BastianHostName": {
+      "Description" :  "The EC2 Bastian host DNS Name",
+      "Value"       : {"Fn::GetAtt" : ["BastianHost", "PublicDnsName"]}
+    },
+    "BastianHostIPAddress": {
+      "Description" :  "The EC2 Bastian host IP Address",
+      "Value"       : {"Fn::GetAtt" : ["BastianHost", "PublicIp"]}
+    },
+    "PostgreSQLInstanceID": {
+      "Description" :  "The PostgreSQL Instance ID",
+      "Value"       : {"Ref" : "DbIdentifierPostgres"}
+    },
+    "OracleInstanceID": {
+      "Description" :  "The Oracle Instance ID",
+      "Value"       : {"Ref" : "DbIdentifierOracle"}
+    },
+    "OracleSQLEndpointAddress": {
+      "Description" :  "An Oracle database endpoint",
+      "Value"       : {"Fn::GetAtt" : ["RdsOracleSQL", "Endpoint.Address"]}
+    },
+    "PostgreSQLEndpointAddress": {
+      "Description" :  "The PostgreSQL database endpoint",
+      "Value"       : {"Fn::GetAtt" : ["RdsPostgreSQL", "Endpoint.Address"]}
+    }
+  }
+}
