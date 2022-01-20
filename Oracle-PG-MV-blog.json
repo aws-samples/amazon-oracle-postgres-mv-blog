@@ -546,8 +546,9 @@
 			  " git clone https://github.com/aws-samples/amazon-oracle-postgres-mv-blog.git\n",
 			  " cd amazon-oracle-postgres-mv-blog\n", 
               " unzip MaterializedViewTestCase.zip\n",
-			  " chmod +x runOrclTestsLocal.sh\n",
-			  " chmod +x runOrclTestsCleanup.sh\n",			  
+			  
+			  " chmod +x /home/oracle/amazon-oracle-postgres-mv-blog/MaterializedViewTestCase/runOrclTestsLocal.sh\n",
+			  " chmod +x /home/oracle/amazon-oracle-postgres-mv-blog/MaterializedViewTestCase/runOrclTestsCleanup.sh\n",			  
               " chown -R oracle:oinstall /home/oracle/amazon-oracle-postgres-mv-blog\n",
               "}\n",
 
